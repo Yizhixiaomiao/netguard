@@ -67,6 +67,7 @@ export const deviceApi = {
   create: (data) => api.post('/api/devices/', data),
   update: (id, data) => api.put(`/api/devices/${id}`, data),
   delete: (id) => api.delete(`/api/devices/${id}`),
+  batchDelete: (deviceIds) => api.post('/api/devices/batch-delete', { device_ids: deviceIds }),
 };
 
 export const backupApi = {

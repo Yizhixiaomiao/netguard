@@ -97,3 +97,39 @@ async def delete_device(device_id: str, db: Session = Depends(get_db)):
     db.delete(device)
     db.commit()
     return None
+
+class BatchDeleteRequest(BaseModel):
+    device_ids: List[str]
+
+class BatchDeleteResult(BaseModel):
+    success: int
+    failed: int
+    errors: List[str]
+
+@router.post("/batch-delete", response_model=BatchDeleteResult)
+async def batch_delete_devices(request: BatchDeleteRequest, db: Session = Depends(get_db)):
+    success = 0
+    failed = 0
+    errors = []
+    
+    for device_id in request.device_ids:
+        try:
+            device = db.query(DBDevice).filter(DBDevice.id == device_id).first()
+            if not device:
+                failed += 1
+                errors.append(f"Device {device_id} not found")
+                continue
+            
+            db.delete(device)
+            success += 1
+        except Exception as e:
+            failed += 1
+            errors.append(f"Failed to delete device {device_id}: {str(e)}")
+    
+    db.commit()
+    
+    return BatchDeleteResult(
+        success=success,
+        failed=failed,
+        errors=errors
+    )

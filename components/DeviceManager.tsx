@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { SwitchDevice, Vendor } from '../types';
-import { Plus, Trash2, Server, Search, Upload, Download } from 'lucide-react';
+import { Plus, Trash2, Server, Search, Upload, Download, CheckSquare, Square } from 'lucide-react';
 
 interface Props {
   switches: SwitchDevice[];
   onAdd: (device: SwitchDevice) => void;
   onDelete: (id: string) => void;
+  onBatchDelete: (ids: string[]) => void;
 }
 
-export default function DeviceManager({ switches, onAdd, onDelete }: Props) {
+export default function DeviceManager({ switches, onAdd, onDelete, onBatchDelete }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [formData, setFormData] = useState<Partial<SwitchDevice>>({
@@ -17,6 +18,8 @@ export default function DeviceManager({ switches, onAdd, onDelete }: Props) {
   const [search, setSearch] = useState('');
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importError, setImportError] = useState('');
+  const [selectedDevices, setSelectedDevices] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const parseCSV = (content: string): Partial<SwitchDevice>[] => {
     const lines = content.trim().split('\n');
@@ -119,6 +122,37 @@ export default function DeviceManager({ switches, onAdd, onDelete }: Props) {
     s.ip.includes(search)
   );
 
+  const handleSelectAll = () => {
+    if (selectedDevices.size === filteredSwitches.length) {
+      setSelectedDevices(new Set());
+    } else {
+      setSelectedDevices(new Set(filteredSwitches.map(s => s.id)));
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedDevices.size === 0) {
+      alert('请选择要删除的设备');
+      return;
+    }
+    
+    if (!confirm(`确定要删除选中的 ${selectedDevices.size} 个设备吗？`)) {
+      return;
+    }
+    
+    setIsDeleting(true);
+    try {
+      await onBatchDelete(Array.from(selectedDevices));
+      setSelectedDevices(new Set());
+      alert('批量删除成功');
+    } catch (error) {
+      console.error('Batch delete failed:', error);
+      alert('批量删除失败');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
        <div className="flex justify-between items-center">
@@ -127,6 +161,15 @@ export default function DeviceManager({ switches, onAdd, onDelete }: Props) {
           <p className="text-gray-500">管理网络交换机与路由器。</p>
         </div>
         <div className="flex gap-3">
+          {selectedDevices.size > 0 && (
+            <button 
+              onClick={handleBatchDelete}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors shadow-sm"
+            >
+              <Trash2 size={18} /> 删除选中 ({selectedDevices.size})
+            </button>
+          )}
           <button 
             onClick={() => setShowImport(!showImport)}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors shadow-sm"
@@ -266,24 +309,59 @@ export default function DeviceManager({ switches, onAdd, onDelete }: Props) {
       )}
 
       {/* Search Bar */}
-      <div className="relative">
-        <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-        <input 
-          type="text" 
-          placeholder="搜索主机名或 IP..." 
-          className="w-full bg-white border border-gray-200 rounded-lg py-2.5 pl-10 pr-4 text-gray-900 shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-gray-400"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+      <div className="flex gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+          <input 
+            type="text" 
+            placeholder="搜索主机名或 IP..." 
+            className="w-full bg-white border border-gray-200 rounded-lg py-2.5 pl-10 pr-4 text-gray-900 shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-gray-400"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        {filteredSwitches.length > 0 && (
+          <button 
+            onClick={handleSelectAll}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
+          >
+            {selectedDevices.size === filteredSwitches.length ? (
+              <CheckSquare size={18} className="text-blue-600" />
+            ) : (
+              <Square size={18} />
+            )}
+            {selectedDevices.size === filteredSwitches.length ? '取消全选' : '全选'}
+          </button>
+        )}
       </div>
 
       {/* List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredSwitches.map(device => (
-          <div key={device.id} className="bg-white p-5 rounded-xl border border-gray-200 hover:border-blue-400 transition-colors shadow-sm group">
+          <div key={device.id} className={`bg-white p-5 rounded-xl border hover:border-blue-400 transition-colors shadow-sm group ${selectedDevices.has(device.id) ? 'border-blue-500 ring-2 ring-blue-100' : 'border-gray-200'}`}>
             <div className="flex justify-between items-start mb-4">
-              <div className="p-2 bg-gray-100 rounded-lg text-blue-600">
-                <Server size={24} />
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => {
+                    const newSelected = new Set(selectedDevices);
+                    if (newSelected.has(device.id)) {
+                      newSelected.delete(device.id);
+                    } else {
+                      newSelected.add(device.id);
+                    }
+                    setSelectedDevices(newSelected);
+                  }}
+                  className="p-1 hover:bg-gray-100 rounded transition-colors"
+                >
+                  {selectedDevices.has(device.id) ? (
+                    <CheckSquare size={20} className="text-blue-600" />
+                  ) : (
+                    <Square size={20} className="text-gray-400" />
+                  )}
+                </button>
+                <div className="p-2 bg-gray-100 rounded-lg text-blue-600">
+                  <Server size={24} />
+                </div>
               </div>
               <button 
                 onClick={() => onDelete(device.id)}

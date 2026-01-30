@@ -277,10 +277,10 @@ export default function BackupRepository({ switches, backups, onAdd }: Props) {
       });
 
       if (result.failed > 0) {
-        alert(`批量备份完成！成功 ${result.success} 个，失败 ${result.failed} 个。`);
-        if (result.errors.length > 0) {
-          console.error('Backup errors:', result.errors);
-        }
+        const errorMsg = result.errors.map((e: any) => 
+          `设备 ${e.device_id}: ${e.error}`
+        ).join('\n');
+        alert(`批量备份完成！成功 ${result.success} 个，失败 ${result.failed} 个。\n\n错误详情:\n${errorMsg}`);
       } else {
         alert(`批量备份完成！共备份 ${result.success} 个设备。`);
       }

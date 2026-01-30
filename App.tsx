@@ -96,6 +96,21 @@ export default function App() {
       throw error;
     }
   };
+
+  const batchDeleteSwitches = async (ids: string[]) => {
+    try {
+      const result = await deviceApi.batchDelete(ids);
+      setSwitches(switches.filter(s => !ids.includes(s.id)));
+      
+      if (result.failed > 0) {
+        const errorMsg = result.errors.join('\n');
+        alert(`批量删除完成！成功 ${result.success} 个，失败 ${result.failed} 个。\n\n错误详情:\n${errorMsg}`);
+      }
+    } catch (error) {
+      console.error('Failed to batch delete devices:', error);
+      throw error;
+    }
+  };
   
   const addBackup = async (backup: ConfigBackup) => {
     try {
@@ -185,7 +200,7 @@ export default function App() {
       <main className="flex-1 overflow-auto bg-gray-50 relative">
         <div className="max-w-7xl mx-auto p-6 lg:p-8">
           {activeTab === 'dashboard' && <Dashboard switches={switches} backups={backups} />}
-          {activeTab === 'devices' && <DeviceManager switches={switches} onAdd={addSwitch} onDelete={deleteSwitch} />}
+          {activeTab === 'devices' && <DeviceManager switches={switches} onAdd={addSwitch} onDelete={deleteSwitch} onBatchDelete={batchDeleteSwitches} />}
           {activeTab === 'backups' && <BackupRepository switches={switches} backups={backups} onAdd={addBackup} />}
           {activeTab === 'analyze' && <Analyzer switches={switches} backups={backups} />}
           {activeTab === 'batch' && <BatchConfigurator switches={switches} />}
