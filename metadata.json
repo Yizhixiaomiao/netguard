@@ -1,0 +1,5 @@
+{
+  "name": "NetGuard AI - 交换机运维",
+  "description": "基于 Gemini AI 的全方位网络交换机配置管理、备份分析及批量脚本生成工具。",
+  "requestFramePermissions": []
+}
