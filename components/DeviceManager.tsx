@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { SwitchDevice, Vendor } from '../types';
-import { Plus, Trash2, Server, Search } from 'lucide-react';
+import { Plus, Trash2, Server, Search, Upload, Download } from 'lucide-react';
 
 interface Props {
   switches: SwitchDevice[];
@@ -10,10 +10,91 @@ interface Props {
 
 export default function DeviceManager({ switches, onAdd, onDelete }: Props) {
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [formData, setFormData] = useState<Partial<SwitchDevice>>({
     vendor: Vendor.CISCO
   });
   const [search, setSearch] = useState('');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importError, setImportError] = useState('');
+
+  const parseCSV = (content: string): Partial<SwitchDevice>[] => {
+    const lines = content.trim().split('\n');
+    const devices: Partial<SwitchDevice>[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      
+      const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+      if (values.length < 3) continue;
+      
+      const [name, ip, vendor, location] = values;
+      if (!name || !ip) continue;
+      
+      devices.push({
+        name,
+        ip,
+        vendor: vendor && Object.values(Vendor).includes(vendor as Vendor) ? vendor as Vendor : Vendor.CISCO,
+        location: location || '未知'
+      });
+    }
+    
+    return devices;
+  };
+
+  const handleImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importFile) {
+      setImportError('请选择文件');
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const content = event.target?.result as string;
+        const devices = parseCSV(content);
+        
+        if (devices.length === 0) {
+          setImportError('未找到有效的设备数据');
+          return;
+        }
+        
+        for (const device of devices) {
+          const newDevice: SwitchDevice = {
+            id: crypto.randomUUID(),
+            name: device.name!,
+            ip: device.ip!,
+            vendor: device.vendor as Vendor,
+            location: device.location || '未知',
+            lastBackup: undefined
+          };
+          try {
+            await onAdd(newDevice);
+          } catch (error) {
+            console.error('Failed to add device:', error);
+          }
+        }
+        
+        setShowImport(false);
+        setImportFile(null);
+        setImportError('');
+      } catch (error) {
+        setImportError('文件解析失败，请检查格式');
+      }
+    };
+    reader.readAsText(importFile);
+  };
+
+  const downloadTemplate = () => {
+    const template = 'name,ip,vendor,location\nCORE-SW-01,192.168.1.1,Cisco IOS,数据中心\nDIST-SW-01,192.168.1.2,Huawei VRP,一楼机房\nACCESS-SW-01,192.168.1.3,Cisco IOS,二楼机房';
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'devices_template.csv';
+    link.click();
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,12 +126,20 @@ export default function DeviceManager({ switches, onAdd, onDelete }: Props) {
           <h2 className="text-3xl font-bold text-gray-900">设备清单</h2>
           <p className="text-gray-500">管理网络交换机与路由器。</p>
         </div>
-        <button 
-          onClick={() => setShowForm(!showForm)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors shadow-sm"
-        >
-          <Plus size={18} /> 添加设备
-        </button>
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setShowImport(!showImport)}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors shadow-sm"
+          >
+            <Upload size={18} /> 导入设备
+          </button>
+          <button 
+            onClick={() => setShowForm(!showForm)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors shadow-sm"
+          >
+            <Plus size={18} /> 添加设备
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -113,6 +202,64 @@ export default function DeviceManager({ switches, onAdd, onDelete }: Props) {
               >
                 保存设备
               </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showImport && (
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-fade-in-down">
+          <h3 className="text-lg font-semibold mb-4 text-gray-800">批量导入设备</h3>
+          <form onSubmit={handleImport} className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">选择 CSV 文件</label>
+              <input 
+                required
+                type="file" 
+                accept=".csv"
+                className="w-full bg-white border border-gray-300 rounded-lg p-2.5 text-gray-900 focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all"
+                onChange={e => {
+                  const file = e.target.files?.[0] || null;
+                  setImportFile(file);
+                  setImportError('');
+                }}
+              />
+            </div>
+            {importError && (
+              <div className="text-red-500 text-sm">{importError}</div>
+            )}
+            <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-600">
+              <p className="font-medium mb-2">CSV 文件格式：</p>
+              <code className="block bg-white p-2 rounded border">name,ip,vendor,location</code>
+              <p className="mt-2 text-xs">支持厂商：Cisco IOS, Huawei VRP, Juniper Junos, Arista EOS, HP Comware</p>
+            </div>
+            <div className="flex justify-between items-center">
+              <button 
+                type="button" 
+                onClick={downloadTemplate}
+                className="text-green-600 hover:text-green-700 flex items-center gap-2 text-sm font-medium"
+              >
+                <Download size={16} /> 下载模板
+              </button>
+              <div className="flex gap-3">
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setShowImport(false);
+                    setImportFile(null);
+                    setImportError('');
+                  }}
+                  className="px-4 py-2 text-gray-500 hover:text-gray-900"
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit" 
+                  className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium shadow-sm"
+                >
+                  导入设备
+                </button>
+              </div>
             </div>
           </form>
         </div>

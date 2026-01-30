@@ -14,45 +14,119 @@ import BackupRepository from './components/BackupRepository';
 import Analyzer from './components/Analyzer';
 import BatchConfigurator from './components/BatchConfigurator';
 import { SwitchDevice, ConfigBackup } from './types';
-
-// Mock Data for Initial Load if LocalStorage is empty
-const MOCK_SWITCHES: SwitchDevice[] = [
-  { id: 'sw-01', name: 'Core-Switch-01', ip: '192.168.1.1', vendor: 'Cisco IOS' as any, location: 'Data Center A', lastBackup: '2023-10-25' },
-  { id: 'sw-02', name: 'Access-Floor-1', ip: '192.168.20.5', vendor: 'Huawei VRP' as any, location: 'Building 2', lastBackup: '2023-10-24' },
-];
+import { deviceApi, backupApi } from './services/api';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'devices' | 'backups' | 'analyze' | 'batch'>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   
-  // Global State (In a real app, use Context or Redux)
-  const [switches, setSwitches] = useState<SwitchDevice[]>(() => {
-    const saved = localStorage.getItem('netguard_switches');
-    return saved ? JSON.parse(saved) : MOCK_SWITCHES;
-  });
-
-  const [backups, setBackups] = useState<ConfigBackup[]>(() => {
-    const saved = localStorage.getItem('netguard_backups');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  // Persist State
-  useEffect(() => {
-    localStorage.setItem('netguard_switches', JSON.stringify(switches));
-  }, [switches]);
+  const [switches, setSwitches] = useState<SwitchDevice[]>([]);
+  const [backups, setBackups] = useState<ConfigBackup[]>([]);
 
   useEffect(() => {
-    localStorage.setItem('netguard_backups', JSON.stringify(backups));
-  }, [backups]);
+    loadData();
+  }, []);
 
-  // Actions
-  const addSwitch = (dev: SwitchDevice) => setSwitches([...switches, dev]);
-  const deleteSwitch = (id: string) => setSwitches(switches.filter(s => s.id !== id));
+  const loadData = async () => {
+    try {
+      setIsLoading(true);
+      const [devicesData, backupsData] = await Promise.all([
+        deviceApi.getAll(),
+        backupApi.getAll()
+      ]);
+      
+      const formattedDevices = devicesData.map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        ip: d.ip,
+        vendor: d.vendor,
+        location: d.location,
+        lastBackup: d.last_backup ? new Date(d.last_backup).toISOString().split('T')[0] : undefined
+      }));
+      
+      const formattedBackups = backupsData.map((b: any) => ({
+        id: b.id,
+        switchId: b.switch_id,
+        timestamp: b.timestamp,
+        content: b.content,
+        filename: b.filename,
+        commands: b.commands,
+        templateName: b.template_name
+      }));
+      
+      setSwitches(formattedDevices);
+      setBackups(formattedBackups);
+    } catch (error) {
+      console.error('Failed to load data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const addSwitch = async (dev: SwitchDevice) => {
+    try {
+      const newDevice = await deviceApi.create({
+        name: dev.name,
+        ip: dev.ip,
+        vendor: dev.vendor,
+        location: dev.location
+      });
+      const formattedDevice = {
+        id: newDevice.id,
+        name: newDevice.name,
+        ip: newDevice.ip,
+        vendor: newDevice.vendor,
+        location: newDevice.location,
+        lastBackup: newDevice.last_backup ? new Date(newDevice.last_backup).toISOString().split('T')[0] : undefined
+      };
+      setSwitches([...switches, formattedDevice]);
+    } catch (error) {
+      console.error('Failed to add device:', error);
+      throw error;
+    }
+  };
+
+  const deleteSwitch = async (id: string) => {
+    try {
+      await deviceApi.delete(id);
+      setSwitches(switches.filter(s => s.id !== id));
+    } catch (error) {
+      console.error('Failed to delete device:', error);
+      throw error;
+    }
+  };
   
-  const addBackup = (backup: ConfigBackup) => {
-    setBackups([backup, ...backups]);
-    // Update last backup date on device
-    setSwitches(prev => prev.map(s => s.id === backup.switchId ? { ...s, lastBackup: backup.timestamp } : s));
+  const addBackup = async (backup: ConfigBackup) => {
+    try {
+      if (!backup.switchId) {
+        await loadData();
+        return;
+      }
+
+      const newBackup = await backupApi.create({
+        switch_id: backup.switchId,
+        commands: backup.commands,
+        template: backup.template || {}
+      });
+      
+      const formattedBackup = {
+        id: newBackup.id,
+        switchId: newBackup.switch_id,
+        timestamp: newBackup.timestamp,
+        content: newBackup.content,
+        filename: newBackup.filename,
+        commands: newBackup.commands,
+        templateName: newBackup.template_name
+      };
+      
+      setBackups([formattedBackup, ...backups]);
+      
+      await loadData();
+    } catch (error) {
+      console.error('Failed to add backup:', error);
+      throw error;
+    }
   };
 
   const navItems = [
@@ -63,9 +137,19 @@ export default function App() {
     { id: 'batch', label: '批量配置', icon: <Terminal size={20} /> },
   ];
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">加载中...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900 font-sans">
-      {/* Sidebar */}
       <aside 
         className={`${isSidebarOpen ? 'w-64' : 'w-20'} transition-all duration-300 bg-white border-r border-gray-200 flex flex-col shadow-sm z-10`}
       >
@@ -94,11 +178,10 @@ export default function App() {
         </nav>
 
         <div className="p-4 border-t border-gray-100 text-xs text-gray-400 text-center">
-          {isSidebarOpen && <p>v1.0.0 | 本地模式</p>}
+          {isSidebarOpen && <p>v1.0.0 | 后端模式</p>}
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 overflow-auto bg-gray-50 relative">
         <div className="max-w-7xl mx-auto p-6 lg:p-8">
           {activeTab === 'dashboard' && <Dashboard switches={switches} backups={backups} />}
